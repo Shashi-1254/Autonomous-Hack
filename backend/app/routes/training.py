@@ -8,8 +8,62 @@ from app.models.dataset import Dataset
 from app.models.experiment import Experiment, TrainingJob
 import pandas as pd
 import io
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 training_bp = Blueprint('training', __name__)
+
+
+# CombinedPreprocessor at module level for pickle compatibility
+class CombinedPreprocessor:
+    """Preprocessor that handles both categorical encoding and scaling"""
+    
+    def __init__(self):
+        self.label_encoders = {}
+        self.scaler = StandardScaler()
+        self.feature_columns = None
+        self.categorical_columns = []
+        self.numeric_columns = []
+    
+    def fit_transform(self, X):
+        self.feature_columns = list(X.columns)
+        self.categorical_columns = list(X.select_dtypes(include=['object']).columns)
+        self.numeric_columns = [c for c in self.feature_columns if c not in self.categorical_columns]
+        
+        X_processed = X.copy()
+        
+        # Encode categorical features
+        for col in self.categorical_columns:
+            self.label_encoders[col] = LabelEncoder()
+            X_processed[col] = self.label_encoders[col].fit_transform(X_processed[col].astype(str))
+        
+        # Fill missing values
+        X_processed = X_processed.fillna(X_processed.median())
+        
+        # Scale all features
+        return self.scaler.fit_transform(X_processed)
+    
+    def transform(self, X):
+        import pandas as pd
+        X_processed = X.copy()
+        
+        # Encode categorical features
+        for col in self.categorical_columns:
+            if col in X_processed.columns and col in self.label_encoders:
+                le = self.label_encoders[col]
+                # Handle unseen labels by using the most frequent class
+                X_processed[col] = X_processed[col].astype(str).apply(
+                    lambda x: le.transform([x])[0] if x in le.classes_ else 0
+                )
+        
+        # Handle missing columns (fill with 0)
+        for col in self.feature_columns:
+            if col not in X_processed.columns:
+                X_processed[col] = 0
+        
+        # Reorder columns and fill missing values
+        X_processed = X_processed[self.feature_columns].fillna(0)
+        
+        return self.scaler.transform(X_processed)
 
 
 @training_bp.route('/analyze-prompt', methods=['POST'])
@@ -240,17 +294,9 @@ def _run_training_task(experiment_id, file_path, target_column, column_info):
         experiment.problem_type = problem_type
         db.session.commit()
         
-        # Handle categorical features
-        for col in X.select_dtypes(include=['object']).columns:
-            le = LabelEncoder()
-            X[col] = le.fit_transform(X[col].astype(str))
-        
-        # Fill missing values
-        X = X.fillna(X.median())
-        
-        # Scale features
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        # Use the module-level CombinedPreprocessor for pickle compatibility
+        preprocessor = CombinedPreprocessor()
+        X_scaled = preprocessor.fit_transform(X)
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
@@ -389,7 +435,7 @@ def _run_training_task(experiment_id, file_path, target_column, column_info):
                     # Create the package directory with all files
                     package_dir = packager.package(
                         model=best_model,
-                        preprocessor=scaler,  # The StandardScaler we used
+                        preprocessor=preprocessor,  # The CombinedPreprocessor we created
                         feature_schema=feature_schema,
                         metadata=metadata,
                         model_format='pkl'
@@ -401,7 +447,7 @@ def _run_training_task(experiment_id, file_path, target_column, column_info):
                     
                     # Upload to MinIO
                     minio_service = get_minio_service()
-                    zip_filename = f"models/user_{experiment.user_id}/experiment_{experiment.id}/model_package.zip"
+                    zip_filename = f"user_{experiment.user_id}/experiment_{experiment.id}/model_package.zip"
                     
                     with open(zip_path, 'rb') as f:
                         zip_content = f.read()
@@ -414,7 +460,10 @@ def _run_training_task(experiment_id, file_path, target_column, column_info):
                     )
                     
                     # Update experiment with model path
-                    experiment.results['model_package_path'] = zip_filename
+                    # Need to copy and update to trigger SQLAlchemy change detection
+                    updated_results = dict(experiment.results or {})
+                    updated_results['model_package_path'] = zip_filename
+                    experiment.results = updated_results
                     db.session.commit()
                     
                     print(f"✅ Model package uploaded: {zip_filename}", flush=True)

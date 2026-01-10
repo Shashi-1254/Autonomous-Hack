@@ -122,7 +122,8 @@ export default function Models() {
                                 <button
                                     className="btn btn-secondary"
                                     onClick={() => handleDownload(model.id, model.name)}
-                                    disabled={downloadingId === model.id}
+                                    disabled={downloadingId === model.id || !model.has_package}
+                                    title={!model.has_package ? 'Package not available. Train a new model to enable downloads.' : 'Download model package'}
                                 >
                                     {downloadingId === model.id ? (
                                         <Loader2 size={16} className="spin" />
