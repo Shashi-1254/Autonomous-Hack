@@ -33,6 +33,7 @@ def create_app(config_class=Config):
     from .routes.predictions import predictions_bp
     from .routes.models import models_bp
     from .routes.orders import orders_bp
+    from .routes.inventory_routes import inventory_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(datasets_bp, url_prefix='/api/datasets')
@@ -40,6 +41,8 @@ def create_app(config_class=Config):
     app.register_blueprint(predictions_bp, url_prefix='/api/predict')
     app.register_blueprint(models_bp, url_prefix='/api/models')
     app.register_blueprint(orders_bp, url_prefix='/api/orders')
+    app.register_blueprint(inventory_bp, url_prefix='/api/inventory')
+
     
     # Health check endpoint
     @app.route('/api/health')
