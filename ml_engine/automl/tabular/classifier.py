@@ -1,13 +1,21 @@
 """
 Tabular Classification Module
-Supports: Logistic Regression, Random Forest, XGBoost
+Supports: Logistic Regression, Random Forest, XGBoost, Gradient Boosting, SVM, KNN, Decision Tree, AdaBoost, Extra Trees, LightGBM
 """
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Tuple, Optional
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier, 
+    GradientBoostingClassifier, 
+    AdaBoostClassifier, 
+    ExtraTreesClassifier
+)
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 import joblib
 
@@ -16,6 +24,12 @@ try:
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
+
+try:
+    from lightgbm import LGBMClassifier
+    LIGHTGBM_AVAILABLE = True
+except ImportError:
+    LIGHTGBM_AVAILABLE = False
 
 
 class TabularClassifier:
@@ -29,6 +43,30 @@ class TabularClassifier:
         'random_forest': {
             'class': RandomForestClassifier,
             'params': {'n_estimators': 100, 'random_state': 42, 'n_jobs': -1}
+        },
+        'gradient_boosting': {
+            'class': GradientBoostingClassifier,
+            'params': {'n_estimators': 100, 'random_state': 42, 'max_depth': 5}
+        },
+        'svm': {
+            'class': SVC,
+            'params': {'kernel': 'rbf', 'probability': True, 'random_state': 42}
+        },
+        'knn': {
+            'class': KNeighborsClassifier,
+            'params': {'n_neighbors': 5, 'n_jobs': -1}
+        },
+        'decision_tree': {
+            'class': DecisionTreeClassifier,
+            'params': {'random_state': 42, 'max_depth': 10}
+        },
+        'adaboost': {
+            'class': AdaBoostClassifier,
+            'params': {'n_estimators': 100, 'random_state': 42}
+        },
+        'extra_trees': {
+            'class': ExtraTreesClassifier,
+            'params': {'n_estimators': 100, 'random_state': 42, 'n_jobs': -1}
         }
     }
     
@@ -39,11 +77,18 @@ class TabularClassifier:
                 'params': {'n_estimators': 100, 'random_state': 42, 'use_label_encoder': False, 'eval_metric': 'logloss'}
             }
         
+        if LIGHTGBM_AVAILABLE:
+            self.MODELS['lightgbm'] = {
+                'class': LGBMClassifier,
+                'params': {'n_estimators': 100, 'random_state': 42, 'verbose': -1}
+            }
+        
         self.trained_models = {}
         self.best_model = None
         self.best_model_name = None
         self.best_score = 0
         self.results = []
+
     
     def train(
         self,

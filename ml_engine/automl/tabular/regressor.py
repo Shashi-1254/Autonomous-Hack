@@ -1,13 +1,21 @@
 """
 Tabular Regression Module
-Supports: Linear Regression, Random Forest, XGBoost
+Supports: Linear Regression, Ridge, Random Forest, XGBoost, Gradient Boosting, SVR, KNN, Decision Tree, AdaBoost, Extra Trees, Lasso, ElasticNet, LightGBM
 """
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional
 from sklearn.model_selection import cross_val_score, train_test_split
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.ensemble import (
+    RandomForestRegressor, 
+    GradientBoostingRegressor, 
+    AdaBoostRegressor, 
+    ExtraTreesRegressor
+)
+from sklearn.svm import SVR
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
 
@@ -16,6 +24,12 @@ try:
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
+
+try:
+    from lightgbm import LGBMRegressor
+    LIGHTGBM_AVAILABLE = True
+except ImportError:
+    LIGHTGBM_AVAILABLE = False
 
 
 class TabularRegressor:
@@ -30,8 +44,40 @@ class TabularRegressor:
             'class': Ridge,
             'params': {'random_state': 42}
         },
+        'lasso': {
+            'class': Lasso,
+            'params': {'random_state': 42, 'max_iter': 2000}
+        },
+        'elasticnet': {
+            'class': ElasticNet,
+            'params': {'random_state': 42, 'max_iter': 2000}
+        },
         'random_forest': {
             'class': RandomForestRegressor,
+            'params': {'n_estimators': 100, 'random_state': 42, 'n_jobs': -1}
+        },
+        'gradient_boosting': {
+            'class': GradientBoostingRegressor,
+            'params': {'n_estimators': 100, 'random_state': 42, 'max_depth': 5}
+        },
+        'svr': {
+            'class': SVR,
+            'params': {'kernel': 'rbf'}
+        },
+        'knn': {
+            'class': KNeighborsRegressor,
+            'params': {'n_neighbors': 5, 'n_jobs': -1}
+        },
+        'decision_tree': {
+            'class': DecisionTreeRegressor,
+            'params': {'random_state': 42, 'max_depth': 10}
+        },
+        'adaboost': {
+            'class': AdaBoostRegressor,
+            'params': {'n_estimators': 100, 'random_state': 42}
+        },
+        'extra_trees': {
+            'class': ExtraTreesRegressor,
             'params': {'n_estimators': 100, 'random_state': 42, 'n_jobs': -1}
         }
     }
@@ -43,11 +89,18 @@ class TabularRegressor:
                 'params': {'n_estimators': 100, 'random_state': 42}
             }
         
+        if LIGHTGBM_AVAILABLE:
+            self.MODELS['lightgbm'] = {
+                'class': LGBMRegressor,
+                'params': {'n_estimators': 100, 'random_state': 42, 'verbose': -1}
+            }
+        
         self.trained_models = {}
         self.best_model = None
         self.best_model_name = None
         self.best_score = float('-inf')
         self.results = []
+
     
     def train(
         self,

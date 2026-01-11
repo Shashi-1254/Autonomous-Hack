@@ -118,34 +118,70 @@ def load_model_package(model_id: int):
 
 def load_legacy_components(temp_dir):
     """Load components for legacy/fallback UI"""
+    model = None
+    preprocessor = None
+    schema = None
+    model_info = {}
+    
     try:
-        # Load model
+        # Debug: List files in temp_dir
+        print(f"--- DEBUG: Loading components from {temp_dir} ---", flush=True)
+        if os.path.exists(temp_dir):
+            files = os.listdir(temp_dir)
+            print(f"Files in temp_dir: {files}", flush=True)
+        else:
+            print(f"ERROR: temp_dir does not exist!", flush=True)
+            return None, None, None, None
+        
+        # Load model - with specific error handling
         model_path = os.path.join(temp_dir, 'model.pkl')
-        model = joblib.load(model_path) if os.path.exists(model_path) else None
+        print(f"Looking for model at: {model_path}, exists: {os.path.exists(model_path)}", flush=True)
+        if os.path.exists(model_path):
+            try:
+                model = joblib.load(model_path)
+                print(f"Model loaded successfully: {type(model)}", flush=True)
+            except Exception as e:
+                print(f"Failed to load model: {e}", flush=True)
+                # Try loading with pickle directly as fallback
+                try:
+                    import pickle
+                    with open(model_path, 'rb') as f:
+                        model = pickle.load(f)
+                    print(f"Model loaded via pickle fallback: {type(model)}", flush=True)
+                except Exception as pe:
+                    print(f"Model pickle fallback also failed: {pe}", flush=True)
         
         # Load preprocessor
         preprocessor_path = os.path.join(temp_dir, 'preprocessor.pkl')
-        preprocessor = joblib.load(preprocessor_path) if os.path.exists(preprocessor_path) else None
+        print(f"Looking for preprocessor at: {preprocessor_path}, exists: {os.path.exists(preprocessor_path)}", flush=True)
+        if os.path.exists(preprocessor_path):
+            try:
+                preprocessor = joblib.load(preprocessor_path)
+                print(f"Preprocessor loaded successfully: {type(preprocessor)}", flush=True)
+            except Exception as e:
+                print(f"Failed to load preprocessor: {e}", flush=True)
         
         # Load UI schema
         schema_path = os.path.join(temp_dir, 'ui_schema.json')
+        print(f"Looking for schema at: {schema_path}, exists: {os.path.exists(schema_path)}", flush=True)
         if os.path.exists(schema_path):
             with open(schema_path, 'r') as f:
                 schema = json.load(f)
-        else:
-            schema = None
         
         # Load model info
         info_path = os.path.join(temp_dir, 'model_info.json')
+        print(f"Looking for model_info at: {info_path}, exists: {os.path.exists(info_path)}", flush=True)
         if os.path.exists(info_path):
             with open(info_path, 'r') as f:
                 model_info = json.load(f)
-        else:
-            model_info = {}
-            
+        
+        print(f"Loaded: model={model is not None}, preprocessor={preprocessor is not None}, schema={schema is not None}", flush=True)
         return model, preprocessor, schema, model_info
     except Exception as e:
-        return None, None, None, None
+        print(f"ERROR loading components: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return model, preprocessor, schema, model_info
 
 
 def fetch_models_list():
@@ -382,83 +418,13 @@ def main():
 
     # Ensure cleanup on exit
     try:
-        # Check for bundled app
-        bundled_app_path = os.path.join(temp_dir, 'streamlit_app.py')
-        
-        if os.path.exists(bundled_app_path):
-            try:
-                # Add temp dir to sys.path so the app can import local modules (loader.py, etc)
-                if temp_dir not in sys.path:
-                    sys.path.insert(0, temp_dir)
-                
+        # Always use the legacy UI for reliability
+        # The bundled streamlit_app.py is meant for standalone execution,
+        # but when embedded here, it causes set_page_config conflicts.
+        # The legacy UI provides the same functionality using the model.pkl and ui_schema.json
+        st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
+        run_legacy_ui(temp_dir)
 
-                # Execute the bundled app
-                # We read the content and exec it in a new namespace, but share st
-                with open(bundled_app_path, 'r', encoding='utf-8') as f:
-                    code = f.read()
-                
-
-                # Robustly remove st.set_page_config using AST
-                # This handles multi-line calls and indentation correctly
-                try:
-                    import ast
-                    
-                    code_tree = ast.parse(code)
-                    
-                    # Manual filtering of top-level statements
-                    new_body = []
-                    for node in code_tree.body:
-                        remove_node = False
-                        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-                            func = node.value.func
-                            # Check for st.set_page_config (Attribute or direct name)
-                            if isinstance(func, ast.Attribute) and func.attr == 'set_page_config':
-                                remove_node = True
-                            elif isinstance(func, ast.Name) and func.id == 'set_page_config':
-                                remove_node = True
-                                
-                        if not remove_node:
-                            new_body.append(node)
-                        else:
-                            print("Removed st.set_page_config call", flush=True)
-                            
-                    code_tree.body = new_body
-                    ast.fix_missing_locations(code_tree)
-                    code_obj = compile(code_tree, bundled_app_path, 'exec')
-                    
-                    # Create a namespace for execution
-                    # Use a fresh dictionary to avoid pollution
-                    global_vars = {
-                        '__file__': bundled_app_path,
-                        '__name__': '__main__',
-                        'st': st, 
-                        'pd': pd,
-                        'np': np,
-                        'json': json,
-                        'os': os
-                    }
-                    
-                    # Execute parsed code object
-                    exec(code_obj, global_vars)
-                    
-                except Exception as e:
-                    st.error(f"Failed to execute bundled app: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
-                    # Do not fallback to unsafe string replacement as it causes indentation errors
-                    st.warning("Could not run bundled app headers. Trying legacy UI.")
-                    run_legacy_ui(temp_dir)
-                
-            except Exception as e:
-                st.error(f"Failed to setup bundled app: {e}")
-                # Fallback to legacy UI?
-                st.warning("Falling back to legacy UI...")
-                st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
-                run_legacy_ui(temp_dir)
-        else:
-            # Fallback for models without bundled app
-            st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
-            run_legacy_ui(temp_dir)
             
     finally:
         # We perform cleanup. 
