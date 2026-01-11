@@ -301,20 +301,76 @@ def _run_training_task(experiment_id, file_path, target_column, column_info):
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
         
-        # Define models to try
+        # Define models to try - ALL AVAILABLE ALGORITHMS
         if problem_type == 'classification':
+            from sklearn.ensemble import GradientBoostingClassifier, AdaBoostClassifier, ExtraTreesClassifier
+            from sklearn.svm import SVC
+            from sklearn.neighbors import KNeighborsClassifier
+            from sklearn.tree import DecisionTreeClassifier
+            
             models = [
-                ('Logistic Regression', LogisticRegression(max_iter=1000)),
-                ('Random Forest', RandomForestClassifier(n_estimators=100, random_state=42))
+                ('Logistic Regression', LogisticRegression(max_iter=1000, random_state=42)),
+                ('Random Forest', RandomForestClassifier(n_estimators=100, random_state=42)),
+                ('Gradient Boosting', GradientBoostingClassifier(n_estimators=100, random_state=42, max_depth=5)),
+                ('SVM', SVC(kernel='rbf', probability=True, random_state=42)),
+                ('KNN', KNeighborsClassifier(n_neighbors=5)),
+                ('Decision Tree', DecisionTreeClassifier(random_state=42, max_depth=10)),
+                ('AdaBoost', AdaBoostClassifier(n_estimators=100, random_state=42)),
+                ('Extra Trees', ExtraTreesClassifier(n_estimators=100, random_state=42)),
             ]
+            
+            # Add XGBoost if available
+            try:
+                from xgboost import XGBClassifier
+                models.append(('XGBoost', XGBClassifier(n_estimators=100, random_state=42, use_label_encoder=False, eval_metric='logloss')))
+            except ImportError:
+                print("⚠️ XGBoost not available, skipping...", flush=True)
+            
+            # Add LightGBM if available
+            try:
+                from lightgbm import LGBMClassifier
+                models.append(('LightGBM', LGBMClassifier(n_estimators=100, random_state=42, verbose=-1)))
+            except ImportError:
+                print("⚠️ LightGBM not available, skipping...", flush=True)
+            
             scoring = 'accuracy'
         else:
+            from sklearn.linear_model import Lasso, ElasticNet
+            from sklearn.ensemble import GradientBoostingRegressor, AdaBoostRegressor, ExtraTreesRegressor
+            from sklearn.svm import SVR
+            from sklearn.neighbors import KNeighborsRegressor
+            from sklearn.tree import DecisionTreeRegressor
+            
             models = [
                 ('Linear Regression', LinearRegression()),
-                ('Ridge Regression', Ridge()),
-                ('Random Forest', RandomForestRegressor(n_estimators=100, random_state=42))
+                ('Ridge Regression', Ridge(random_state=42)),
+                ('Lasso Regression', Lasso(random_state=42, max_iter=2000)),
+                ('ElasticNet', ElasticNet(random_state=42, max_iter=2000)),
+                ('Random Forest', RandomForestRegressor(n_estimators=100, random_state=42)),
+                ('Gradient Boosting', GradientBoostingRegressor(n_estimators=100, random_state=42, max_depth=5)),
+                ('SVR', SVR(kernel='rbf')),
+                ('KNN', KNeighborsRegressor(n_neighbors=5)),
+                ('Decision Tree', DecisionTreeRegressor(random_state=42, max_depth=10)),
+                ('AdaBoost', AdaBoostRegressor(n_estimators=100, random_state=42)),
+                ('Extra Trees', ExtraTreesRegressor(n_estimators=100, random_state=42)),
             ]
+            
+            # Add XGBoost if available
+            try:
+                from xgboost import XGBRegressor
+                models.append(('XGBoost', XGBRegressor(n_estimators=100, random_state=42)))
+            except ImportError:
+                print("⚠️ XGBoost not available, skipping...", flush=True)
+            
+            # Add LightGBM if available
+            try:
+                from lightgbm import LGBMRegressor
+                models.append(('LightGBM', LGBMRegressor(n_estimators=100, random_state=42, verbose=-1)))
+            except ImportError:
+                print("⚠️ LightGBM not available, skipping...", flush=True)
+            
             scoring = 'r2'
+
         
         print(f"\n📊 Problem Type: {problem_type.upper()}")
         print(f"📈 Models to train: {len(models)}")

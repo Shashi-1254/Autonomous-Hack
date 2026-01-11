@@ -102,6 +102,10 @@ class TabularClassifier:
         if models_to_train is None:
             models_to_train = list(self.MODELS.keys())
         
+        print(f"[TabularClassifier] Starting training with {len(models_to_train)} algorithms:", flush=True)
+        for i, name in enumerate(models_to_train, 1):
+            print(f"  {i}. {name}", flush=True)
+        
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
         )
@@ -113,10 +117,12 @@ class TabularClassifier:
                 continue
             
             try:
+                print(f"[TabularClassifier] Training {model_name}...", flush=True)
                 result = self._train_single_model(
                     model_name, X_train, X_test, y_train, y_test, cv_folds
                 )
                 self.results.append(result)
+                print(f"[TabularClassifier] {model_name} completed - CV Score: {result['cv_score_mean']:.4f}", flush=True)
                 
                 # Track best model
                 if result['cv_score_mean'] > self.best_score:
@@ -125,17 +131,21 @@ class TabularClassifier:
                     self.best_model_name = model_name
                     
             except Exception as e:
+                print(f"[TabularClassifier] {model_name} FAILED: {str(e)}", flush=True)
                 self.results.append({
                     'model_name': model_name,
                     'status': 'failed',
                     'error': str(e)
                 })
         
+        print(f"[TabularClassifier] Training complete! Best model: {self.best_model_name} (score: {self.best_score:.4f})", flush=True)
+        
         return {
             'results': self.results,
             'best_model': self.best_model_name,
             'best_score': self.best_score
         }
+
     
     def _train_single_model(
         self,
