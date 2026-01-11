@@ -28,6 +28,10 @@ export default function Models() {
         mutationFn: (id) => modelsApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries(['models'])
+        },
+        onError: (error) => {
+            console.error('Delete failed:', error)
+            alert('Failed to delete model. Please try again.')
         }
     })
 
@@ -134,8 +138,9 @@ export default function Models() {
                                 </button>
                                 <button
                                     className="btn btn-secondary btn-danger"
+                                    disabled={deleteMutation.isPending}
                                     onClick={() => {
-                                        if (confirm('Delete this model?')) {
+                                        if (window.confirm('Delete this model?')) {
                                             deleteMutation.mutate(model.id)
                                         }
                                     }}

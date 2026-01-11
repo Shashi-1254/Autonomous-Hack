@@ -11,7 +11,19 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
     (config) => {
-        // Token is handled by auth store
+        // Get token from localStorage (persisted by zustand)
+        const authData = localStorage.getItem('inferx-auth')
+        if (authData) {
+            try {
+                const parsed = JSON.parse(authData)
+                const token = parsed?.state?.token
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`
+                }
+            } catch (e) {
+                console.error('Failed to parse auth data:', e)
+            }
+        }
         return config
     },
     (error) => {

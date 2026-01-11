@@ -1,6 +1,8 @@
+
 """
 InferX-ML Streamlit Application
 Dynamic model loading and prediction UI
+Version: 1.1 (Dynamic Execution)
 """
 import streamlit as st
 import pandas as pd
@@ -79,8 +81,13 @@ def get_model_id_from_url():
         return model_list[0] if model_list else None
 
 
-def load_model_from_minio(model_id: int):
-    """Load model and schema from MinIO via internal API"""
+
+def load_model_package(model_id: int):
+    """
+    Download and extract model package from MinIO.
+    Returns: (temp_dir_object, temp_dir_path, error_message)
+    Caller is responsible for cleaning up temp_dir_object.
+    """
     try:
         # Use internal endpoint (no JWT required)
         headers = {'X-Internal-Secret': INTERNAL_SECRET}
@@ -91,44 +98,54 @@ def load_model_from_minio(model_id: int):
         )
         
         if response.status_code != 200:
-            return None, None, None, f"Failed to load model: {response.status_code}"
+            return None, None, f"Failed to load model: {response.status_code}"
         
         # Extract ZIP in memory
         import zipfile
         zip_buffer = io.BytesIO(response.content)
         
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with zipfile.ZipFile(zip_buffer, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
+        temp_dir_obj = tempfile.TemporaryDirectory()
+        temp_dir_path = temp_dir_obj.name
+        
+        with zipfile.ZipFile(zip_buffer, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir_path)
             
-            # Load model
-            model_path = os.path.join(temp_dir, 'model.pkl')
-            model = joblib.load(model_path) if os.path.exists(model_path) else None
-            
-            # Load preprocessor
-            preprocessor_path = os.path.join(temp_dir, 'preprocessor.pkl')
-            preprocessor = joblib.load(preprocessor_path) if os.path.exists(preprocessor_path) else None
-            
-            # Load UI schema
-            schema_path = os.path.join(temp_dir, 'ui_schema.json')
-            if os.path.exists(schema_path):
-                with open(schema_path, 'r') as f:
-                    schema = json.load(f)
-            else:
-                schema = None
-            
-            # Load model info
-            info_path = os.path.join(temp_dir, 'model_info.json')
-            if os.path.exists(info_path):
-                with open(info_path, 'r') as f:
-                    model_info = json.load(f)
-            else:
-                model_info = {}
-            
-            return model, preprocessor, schema, model_info
+        return temp_dir_obj, temp_dir_path, None
             
     except Exception as e:
-        return None, None, None, str(e)
+        return None, None, str(e)
+
+
+def load_legacy_components(temp_dir):
+    """Load components for legacy/fallback UI"""
+    try:
+        # Load model
+        model_path = os.path.join(temp_dir, 'model.pkl')
+        model = joblib.load(model_path) if os.path.exists(model_path) else None
+        
+        # Load preprocessor
+        preprocessor_path = os.path.join(temp_dir, 'preprocessor.pkl')
+        preprocessor = joblib.load(preprocessor_path) if os.path.exists(preprocessor_path) else None
+        
+        # Load UI schema
+        schema_path = os.path.join(temp_dir, 'ui_schema.json')
+        if os.path.exists(schema_path):
+            with open(schema_path, 'r') as f:
+                schema = json.load(f)
+        else:
+            schema = None
+        
+        # Load model info
+        info_path = os.path.join(temp_dir, 'model_info.json')
+        if os.path.exists(info_path):
+            with open(info_path, 'r') as f:
+                model_info = json.load(f)
+        else:
+            model_info = {}
+            
+        return model, preprocessor, schema, model_info
+    except Exception as e:
+        return None, None, None, None
 
 
 def fetch_models_list():
@@ -213,63 +230,12 @@ def generate_form_from_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     return form_values
 
 
-def main():
-    """Main application entry point"""
-    
-    # Get model ID from URL or show selector
-    model_id = get_model_id_from_url()
-    
-    st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
-    
-    # If no model ID in URL, show model selector
-    if not model_id:
-        st.info("Select a model to make predictions")
-        models = fetch_models_list()
-        
-        if models:
-            model_names = {str(m['id']): m['name'] for m in models if m.get('has_package')}
-            if model_names:
-                selected = st.selectbox(
-                    "Choose Model",
-                    options=list(model_names.keys()),
-                    format_func=lambda x: model_names[x]
-                )
-                if st.button("Load Model"):
-                    try:
-                        st.query_params['model'] = selected
-                    except AttributeError:
-                        st.experimental_set_query_params(model=selected)
-                    st.rerun()
-            else:
-                st.warning("No models with prediction packages available. Train a new model first.")
-        else:
-            st.warning("No models available. Train your first model to get started!")
-        return
-    
-    # Load model
-    with st.spinner("Loading model..."):
-        result = load_model_from_minio(model_id)
-        
-        if isinstance(result[-1], str) and 'Failed' in result[-1]:
-            st.error(result[-1])
-            if st.button("Back to Model Selection"):
-                try:
-                    st.query_params.clear()
-                except AttributeError:
-                    st.experimental_set_query_params()
-                st.rerun()
-            return
-        
-        model, preprocessor, schema, model_info = result
+def run_legacy_ui(temp_dir):
+    """Run the legacy/generic UI for older models"""
+    model, preprocessor, schema, model_info = load_legacy_components(temp_dir)
     
     if model is None:
-        st.error("Failed to load model. The model package may not be available.")
-        if st.button("Back to Model Selection"):
-            try:
-                st.query_params.clear()
-            except AttributeError:
-                st.experimental_set_query_params()
-            st.rerun()
+        st.error("Failed to load model components.")
         return
     
     # Model info in sidebar
@@ -365,9 +331,142 @@ def main():
         except Exception as e:
             st.error(f"Prediction failed: {str(e)}")
 
-    # Footer
-    st.divider()
-    st.caption("Powered by InferX-ML")
+
+def main():
+    """Main application entry point"""
+    import sys
+    
+    # Get model ID from URL or show selector
+    model_id = get_model_id_from_url()
+    
+    # If no model ID in URL, show model selector
+    if not model_id:
+        st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
+        st.info("Select a model to make predictions")
+        models = fetch_models_list()
+        
+        if models:
+            # Only show models that have packages
+            model_names = {str(m['id']): m['name'] for m in models if m.get('has_package')}
+            if model_names:
+                selected = st.selectbox(
+                    "Choose Model",
+                    options=list(model_names.keys()),
+                    format_func=lambda x: model_names[x]
+                )
+                if st.button("Load Model"):
+                    try:
+                        st.query_params['model'] = selected
+                    except AttributeError:
+                        st.experimental_set_query_params(model=selected)
+                    st.rerun()
+            else:
+                st.warning("No models with prediction packages available. Train a new model first.")
+        else:
+            st.warning("No models available. Train your first model to get started!")
+        return
+    
+    # Load model package
+    with st.spinner("Loading model environment..."):
+        temp_dir_obj, temp_dir, error = load_model_package(model_id)
+        
+        if error:
+            st.error(error)
+            if st.button("Back to Model Selection"):
+                try:
+                    st.query_params.clear()
+                except AttributeError:
+                    st.experimental_set_query_params()
+                st.rerun()
+            return
+
+    # Ensure cleanup on exit
+    try:
+        # Check for bundled app
+        bundled_app_path = os.path.join(temp_dir, 'streamlit_app.py')
+        
+        if os.path.exists(bundled_app_path):
+            try:
+                # Add temp dir to sys.path so the app can import local modules (loader.py, etc)
+                if temp_dir not in sys.path:
+                    sys.path.insert(0, temp_dir)
+                
+
+                # Execute the bundled app
+                # We read the content and exec it in a new namespace, but share st
+                with open(bundled_app_path, 'r', encoding='utf-8') as f:
+                    code = f.read()
+                
+
+                # Robustly remove st.set_page_config using AST
+                # This handles multi-line calls and indentation correctly
+                try:
+                    import ast
+                    
+                    code_tree = ast.parse(code)
+                    
+                    # Manual filtering of top-level statements
+                    new_body = []
+                    for node in code_tree.body:
+                        remove_node = False
+                        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                            func = node.value.func
+                            # Check for st.set_page_config (Attribute or direct name)
+                            if isinstance(func, ast.Attribute) and func.attr == 'set_page_config':
+                                remove_node = True
+                            elif isinstance(func, ast.Name) and func.id == 'set_page_config':
+                                remove_node = True
+                                
+                        if not remove_node:
+                            new_body.append(node)
+                        else:
+                            print("Removed st.set_page_config call", flush=True)
+                            
+                    code_tree.body = new_body
+                    ast.fix_missing_locations(code_tree)
+                    code_obj = compile(code_tree, bundled_app_path, 'exec')
+                    
+                    # Create a namespace for execution
+                    # Use a fresh dictionary to avoid pollution
+                    global_vars = {
+                        '__file__': bundled_app_path,
+                        '__name__': '__main__',
+                        'st': st, 
+                        'pd': pd,
+                        'np': np,
+                        'json': json,
+                        'os': os
+                    }
+                    
+                    # Execute parsed code object
+                    exec(code_obj, global_vars)
+                    
+                except Exception as e:
+                    st.error(f"Failed to execute bundled app: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                    # Do not fallback to unsafe string replacement as it causes indentation errors
+                    st.warning("Could not run bundled app headers. Trying legacy UI.")
+                    run_legacy_ui(temp_dir)
+                
+            except Exception as e:
+                st.error(f"Failed to setup bundled app: {e}")
+                # Fallback to legacy UI?
+                st.warning("Falling back to legacy UI...")
+                st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
+                run_legacy_ui(temp_dir)
+        else:
+            # Fallback for models without bundled app
+            st.markdown('<h1 class="main-header">🤖 Make Predictions</h1>', unsafe_allow_html=True)
+            run_legacy_ui(temp_dir)
+            
+    finally:
+        # We perform cleanup. 
+        # WARNING: In a real persistent app this would break subsequent interactions.
+        # But Streamlit re-runs the whole script on interaction.
+        # So we unzip -> run -> cleanup every time. 
+        # For this use case, it is acceptable performance-wise for small models.
+        temp_dir_obj.cleanup()
 
 
 if __name__ == "__main__":

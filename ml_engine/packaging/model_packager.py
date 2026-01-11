@@ -335,28 +335,30 @@ if __name__ == '__main__':
         best_score = metadata.get('best_score', 0)
         
         # Build form fields dynamically
+
+        # Build form fields dynamically
         features = feature_schema.get('features', {})
-        form_fields_code = ""
-        feature_list = list(features.keys())
+        feature_fields = []
         
         for feature_name, feature_info in features.items():
             dtype = feature_info.get('dtype', 'object')
             semantic_type = feature_info.get('semantic_type', 'unknown')
             label = feature_name.replace('_', ' ').title()
             
+            field_code = ""
             if semantic_type == 'categorical':
                 categories = feature_info.get('categories', [])
                 if categories:
                     cats_str = str(categories)
-                    form_fields_code += f'''
-    st.session_state.input_data["{feature_name}"] = st.selectbox(
-        "{label}",
-        options={cats_str},
-        key="{feature_name}"
-    )'''
+                    field_code = f'''
+        st.session_state.input_data["{feature_name}"] = st.selectbox(
+            "{label}",
+            options={cats_str},
+            key="{feature_name}"
+        )'''
                 else:
-                    form_fields_code += f'''
-    st.session_state.input_data["{feature_name}"] = st.text_input("{label}", key="{feature_name}")'''
+                    field_code = f'''
+        st.session_state.input_data["{feature_name}"] = st.text_input("{label}", key="{feature_name}")'''
             
             elif semantic_type == 'numeric':
                 min_val = feature_info.get('min', 0)
@@ -368,22 +370,32 @@ if __name__ == '__main__':
                 max_val = float(max_val) if max_val is not None else 100.0
                 default_val = float(default_val) if default_val is not None else min_val
                 
-                form_fields_code += f'''
-    st.session_state.input_data["{feature_name}"] = st.number_input(
-        "{label}",
-        min_value={min_val},
-        max_value={max_val},
-        value={default_val},
-        key="{feature_name}"
-    )'''
+                field_code = f'''
+        st.session_state.input_data["{feature_name}"] = st.number_input(
+            "{label}",
+            min_value={min_val},
+            max_value={max_val},
+            value={default_val},
+            key="{feature_name}"
+        )'''
             
             elif semantic_type == 'boolean':
-                form_fields_code += f'''
-    st.session_state.input_data["{feature_name}"] = st.checkbox("{label}", key="{feature_name}")'''
+                field_code = f'''
+        st.session_state.input_data["{feature_name}"] = st.checkbox("{label}", key="{feature_name}")'''
             
             else:
-                form_fields_code += f'''
-    st.session_state.input_data["{feature_name}"] = st.text_input("{label}", key="{feature_name}")'''
+                field_code = f'''
+        st.session_state.input_data["{feature_name}"] = st.text_input("{label}", key="{feature_name}")'''
+            
+            feature_fields.append(field_code)
+
+        # Split fields into two columns
+        mid_idx = (len(feature_fields) + 1) // 2
+        col1_fields = feature_fields[:mid_idx]
+        col2_fields = feature_fields[mid_idx:]
+        
+        col1_code = "".join(col1_fields) if col1_fields else "        pass"
+        col2_code = "".join(col2_fields) if col2_fields else "        pass"
         
         streamlit_code = f'''"""
 Streamlit Prediction App - {model_name}
@@ -461,9 +473,9 @@ with st.form("prediction_form"):
     # Create columns for better layout
     col1, col2 = st.columns(2)
     
-    with col1:{form_fields_code[:len(form_fields_code)//2] if form_fields_code else "        pass"}
+    with col1:{col1_code}
     
-    with col2:{form_fields_code[len(form_fields_code)//2:] if form_fields_code else "        pass"}
+    with col2:{col2_code}
     
     submitted = st.form_submit_button("🚀 Predict", use_container_width=True)
 

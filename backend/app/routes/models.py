@@ -153,19 +153,34 @@ def get_model_schema(model_id):
 @models_bp.route('/<int:model_id>', methods=['DELETE'])
 @jwt_required()
 def delete_model(model_id):
-    """Delete a model"""
+    """Delete a model and all related records"""
+    from app.models.order import Order
+    from app.models.experiment import TrainingJob
+    
     user_id = int(get_jwt_identity())
     
     experiment = Experiment.query.filter_by(id=model_id, user_id=user_id).first()
     if not experiment:
         return jsonify({'error': 'Model not found'}), 404
     
-    # TODO: Delete model files from MinIO
-    
-    db.session.delete(experiment)
-    db.session.commit()
-    
-    return jsonify({'message': 'Model deleted successfully'}), 200
+    try:
+        # Delete related orders first (foreign key constraint)
+        Order.query.filter_by(experiment_id=model_id).delete()
+        
+        # Delete related training jobs
+        TrainingJob.query.filter_by(experiment_id=model_id).delete()
+        
+        # TODO: Delete model files from MinIO
+        
+        # Now delete the experiment
+        db.session.delete(experiment)
+        db.session.commit()
+        
+        return jsonify({'message': 'Model deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error deleting model {model_id}: {e}", flush=True)
+        return jsonify({'error': f'Failed to delete model: {str(e)}'}), 500
 
 
 # ============ Internal Endpoints (for Streamlit) ============
